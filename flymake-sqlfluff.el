@@ -29,6 +29,13 @@
   :options flymake-sqlfluff--dialect-options
   :type 'list)
 
+(defcustom flymake-sqlfluff-config nil
+  "Path to sqlfluff configuration file.
+When set, this configuration file will be used with the --config flag."
+  :group 'flymake-sqlfluff
+  :type '(choice (const :tag "None" nil)
+                 (file :tag "Configuration file")))
+
 (defvar-local flymake-sqlfluff--flymake-proc nil)
 
 ;;;###autoload
@@ -42,6 +49,18 @@
   "Load hook for the current buffer to tell flymake to run checker."
   (interactive)
   (add-hook 'flymake-diagnostic-functions #'flymake-sqlfluff--run-checker nil t))
+
+(defun flymake-sqlfluff--build-command ()
+  "Build the sqlfluff command with appropriate flags."
+  (let ((cmd (list (shell-quote-argument flymake-sqlfluff-program)
+                   "lint"
+                   "--dialect"
+                   (shell-quote-argument flymake-sqlfluff-dialect)
+                   "--format"
+                   "json")))
+    (when flymake-sqlfluff-config
+      (setq cmd (append cmd (list "--config" (shell-quote-argument flymake-sqlfluff-config)))))
+    (append cmd (list "-"))))
 
 (defun flymake-sqlfluff--run-checker (report-fn &rest _args)
   "Run checker using REPORT-FN."
@@ -70,14 +89,7 @@
         ;; Make output go to a temporary buffer.
         ;;
         :buffer (generate-new-buffer (concat "*" (make-temp-name "flymake-sqlfluff-") "*"))
-        :command (list
-                  (shell-quote-argument flymake-sqlfluff-program)
-                  "lint"
-                  "--dialect"
-                  (shell-quote-argument flymake-sqlfluff-dialect)
-                  "--format"
-                  "json"
-                  "-")
+        :command (flymake-sqlfluff--build-command)
         :sentinel
         (lambda (proc _event)
           ;; Check that the process has indeed exited, as it might
