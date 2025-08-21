@@ -103,18 +103,30 @@ When set, this configuration file will be used with the --config flag."
                   ;;
                   (if (with-current-buffer source (eq proc flymake-sqlfluff--flymake-proc))
                       (with-current-buffer source
-                        ;; Parse the output buffer for diagnostic's messages and
-                        ;; locations, collect them in a list of objects, and call
-                        ;; `report-fn'.
-                        ;;
-                        (funcall report-fn
-                                 (flatten-list
-                                  (mapcar (lambda (node)
-                                            (mapcar #'flymake-sqlfluff-process-item
-                                                    (gethash "violations" node)))
-                                          (json-parse-string
-                                           (with-current-buffer (process-buffer proc)
-                                             (buffer-substring-no-properties (point-min) (point-max)))))))))
+                        (let ((exit-code (process-exit-status proc))
+                              (output (with-current-buffer (process-buffer proc)
+                                       (buffer-substring-no-properties (point-min) (point-max)))))
+                          (if (zerop exit-code)
+                              ;; Success: parse JSON output
+                              (condition-case err
+                                  (funcall report-fn
+                                           (flatten-list
+                                            (mapcar (lambda (node)
+                                                      (mapcar #'flymake-sqlfluff-process-item
+                                                              (gethash "violations" node)))
+                                                    (json-parse-string output))))
+                                (json-parse-error
+                                 (funcall report-fn
+                                          (list (flymake-make-diagnostic
+                                                 (current-buffer) (point-min) (point-max)
+                                                 :error
+                                                 (format "sqlfluff returned invalid JSON: %s" output))))))
+                            ;; Error: sqlfluff failed, show error message
+                            (funcall report-fn
+                                     (list (flymake-make-diagnostic
+                                            (current-buffer) (point-min) (point-max)
+                                            :error
+                                            (format "sqlfluff failed (exit code %d): %s" exit-code (string-trim output)))))))))
                 ;; Cleanup the temporary buffer used to hold the
                 ;; check's output.
                 ;;
